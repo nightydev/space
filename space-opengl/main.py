@@ -30,8 +30,12 @@ glClearColor(0.0, 0.0, 0.0, 1.0)  # Color de fondo negro
 simulation_time = 0
 time_scale = 0.1  # Velocidad de la simulación: 0.5 = medio "año" por segundo
 
-# --- Información de planetas ---
+# --- Información de planetas y otros objetos ---
 planet_info = {
+    "Asteroid Belt": {
+        "name": "Cinturón de Asteroides",
+        "desc": "Región entre Marte y Júpiter con miles de pequeños cuerpos rocosos.",
+    },
     "Sun": {
         "name": "Sol",
         "desc": "El Sol es la estrella central del Sistema Solar.",
@@ -399,6 +403,8 @@ class OrbitCameraController:
                 self.radius = 0.8
             elif planet_name == "Mercury":
                 self.radius = 0.6
+            elif planet_name == "Asteroid Belt":
+                self.radius = 3.0  # Vista amplia para ver todo el cinturón
             else:
                 self.radius = 1.0
     
@@ -586,6 +592,111 @@ class OrbitCameraController:
             return t2
         else:
             return None  # Intersección detrás de la cámara
+
+# Clase para el cinturón de asteroides
+class AsteroidBelt:
+    def __init__(self, inner_radius=6.8, outer_radius=8.8, num_asteroids=800):
+        """
+        Inicializa un cinturón de asteroides.
+        :param inner_radius: Radio interno del cinturón
+        :param outer_radius: Radio externo del cinturón
+        :param num_asteroids: Número de asteroides en el cinturón
+        """
+        self.inner_radius = inner_radius
+        self.outer_radius = outer_radius
+        self.num_asteroids = num_asteroids
+        self.asteroids = []
+        
+        # Crear los asteroides
+        for _ in range(num_asteroids):
+            # Radio aleatorio dentro del rango del cinturón
+            radius = random.uniform(inner_radius, outer_radius)
+            # Ángulo aleatorio alrededor del sol
+            angle = random.uniform(0, 2 * math.pi)
+            # Posición en el plano XZ
+            x = radius * math.cos(angle)
+            z = radius * math.sin(angle)
+            # Pequeña variación en el eje Y para darle volumen al cinturón
+            y_offset = random.uniform(-0.3, 0.3)
+            
+            # Tamaño aleatorio para cada asteroide
+            size = random.uniform(0.01, 0.04)
+            
+            # Velocidad orbital basada en la distancia (a mayor distancia, menor velocidad)
+            # Ley de Kepler: periodo orbital proporcional a r^(3/2)
+            orbit_speed = 1.0 / math.pow(radius, 0.5) * 0.8
+            
+            # Almacenar datos del asteroide
+            self.asteroids.append({
+                'pos': [x, y_offset, z],
+                'radius': radius,
+                'size': size,
+                'angle': angle,
+                'orbit_speed': orbit_speed,
+                'rotation': random.uniform(0, 360),
+                'rotation_speed': random.uniform(0.5, 2.0),
+                'axis': [
+                    random.uniform(-1, 1),
+                    random.uniform(-1, 1),
+                    random.uniform(-1, 1)
+                ]
+            })
+    
+    def update(self, delta_time):
+        """
+        Actualiza la posición de cada asteroide
+        :param delta_time: Tiempo transcurrido desde la última actualización
+        """
+        for asteroid in self.asteroids:
+            # Actualizar ángulo orbital
+            asteroid['angle'] += asteroid['orbit_speed'] * delta_time * 0.3
+            
+            # Calcular nueva posición
+            asteroid['pos'][0] = asteroid['radius'] * math.cos(asteroid['angle'])
+            asteroid['pos'][2] = asteroid['radius'] * math.sin(asteroid['angle'])
+            
+            # Actualizar rotación del asteroide
+            asteroid['rotation'] += asteroid['rotation_speed'] * delta_time * 10
+    
+    def draw(self):
+        """
+        Dibuja todos los asteroides del cinturón
+        """
+        # Configuración para dibujar los asteroides
+        glEnable(GL_LIGHTING)
+        glEnable(GL_TEXTURE_2D)
+        
+        # Dibujar cada asteroide
+        for asteroid in self.asteroids:
+            glPushMatrix()
+            
+            # Posicionar el asteroide
+            glTranslatef(
+                asteroid['pos'][0],
+                asteroid['pos'][1],
+                asteroid['pos'][2]
+            )
+            
+            # Aplicar rotación
+            glRotatef(
+                asteroid['rotation'],
+                asteroid['axis'][0],
+                asteroid['axis'][1],
+                asteroid['axis'][2]
+            )
+            
+            # Material grisáceo para los asteroides
+            glColor3f(0.6, 0.6, 0.5)
+            
+            # Dibujar como una pequeña esfera irregular
+            asteroid_sphere = gluNewQuadric()
+            gluQuadricTexture(asteroid_sphere, GL_TRUE)
+            gluSphere(asteroid_sphere, asteroid['size'], 4, 4)  # Baja resolución para eficiencia
+            
+            glPopMatrix()
+        
+        # Restaurar color
+        glColor4f(1.0, 1.0, 1.0, 1.0)
 
 # Clase para las estrellas del fondo
 class Star:
@@ -784,6 +895,9 @@ camera_controller = OrbitCameraController()
 # Crear estrellas
 stars = [Star() for _ in range(500)]
 
+# Crear cinturón de asteroides entre Marte y Júpiter
+asteroid_belt = AsteroidBelt(inner_radius=7.5, outer_radius=8.5, num_asteroids=800)
+
 # Crear meteoritos iniciales
 meteors = [Meteor() for _ in range(10)]
 meteor_spawn_timer = 0
@@ -910,6 +1024,10 @@ while running:
         if meteor.active:
             meteor.update(delta_time)
             meteor.draw()
+            
+    # Actualizar y dibujar el cinturón de asteroides
+    asteroid_belt.update(delta_time * time_scale)
+    asteroid_belt.draw()
     
     # Generar nuevos meteoritos
     meteor_spawn_timer -= delta_time
@@ -980,6 +1098,10 @@ while running:
     
     # Agregar la posición del Sol (siempre en el origen)
     planet_positions["Sun"] = (0.0, 0.0, 0.0)
+    
+    # Agregar posición del cinturón de asteroides (punto medio de la órbita)
+    belt_radius = (asteroid_belt.inner_radius + asteroid_belt.outer_radius) / 2
+    planet_positions["Asteroid Belt"] = (belt_radius, 0.0, 0.0)
     
     # Mercurio
     planet_positions["Mercury"] = draw_planet(
