@@ -5,6 +5,7 @@ from OpenGL.GLU import *
 import numpy as np
 import os
 import math
+import random
 
 # Inicializar Pygame
 pygame.init()
@@ -502,8 +503,206 @@ class OrbitCameraController:
         else:
             return None  # Intersección detrás de la cámara
 
+# Clase para las estrellas del fondo
+class Star:
+    def __init__(self, size_range=(0.01, 0.05), distance_range=(30, 45)):
+        # Posición aleatoria en una esfera
+        theta = random.uniform(0, 2 * math.pi)
+        phi = random.uniform(0, math.pi)
+        distance = random.uniform(distance_range[0], distance_range[1])
+        
+        self.x = distance * math.sin(phi) * math.cos(theta)
+        self.y = distance * math.sin(phi) * math.sin(theta)
+        self.z = distance * math.cos(phi)
+        
+        # Tamaño aleatorio
+        self.size = random.uniform(size_range[0], size_range[1])
+        
+        # Brillo aleatorio (para efecto de parpadeo)
+        self.brightness = random.uniform(0.5, 1.0)
+        self.brightness_change_speed = random.uniform(0.3, 1.0) * random.choice([-1, 1])
+    
+    def update(self, delta_time):
+        # Efecto de parpadeo suave
+        self.brightness += self.brightness_change_speed * delta_time
+        if self.brightness > 1.0:
+            self.brightness = 1.0
+            self.brightness_change_speed *= -1
+        elif self.brightness < 0.5:
+            self.brightness = 0.5
+            self.brightness_change_speed *= -1
+
+    def draw(self):
+        glPushMatrix()
+        glTranslatef(self.x, self.y, self.z)
+        
+        # Dibujar como una pequeña esfera brillante
+        glDisable(GL_LIGHTING)
+        glDisable(GL_TEXTURE_2D)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE)
+        
+        # Color blanco con brillo variable
+        glColor4f(self.brightness, self.brightness, self.brightness * 0.9, 1.0)
+        
+        # Dibujar una pequeña esfera para cada estrella
+        star_sphere = gluNewQuadric()
+        gluQuadricTexture(star_sphere, GL_FALSE)
+        gluSphere(star_sphere, self.size * 0.1, 4, 4)  # Pequeña esfera con pocas divisiones
+        
+        # Restaurar estado
+        glDisable(GL_BLEND)
+        glEnable(GL_TEXTURE_2D)
+        glEnable(GL_LIGHTING)
+        glColor4f(1.0, 1.0, 1.0, 1.0)
+        glPopMatrix()
+
+# Clase para meteoritos
+class Meteor:
+    def __init__(self, position_range=(-20, 20), speed_range=(3, 8)):
+        # Posición inicial en un punto aleatorio del borde de la escena
+        side = random.randint(0, 5)  # 6 lados del cubo
+        size = position_range[1]
+        
+        if side == 0:  # Frente
+            self.position = [random.uniform(position_range[0], position_range[1]), 
+                           random.uniform(position_range[0], position_range[1]), 
+                           size]
+        elif side == 1:  # Atrás
+            self.position = [random.uniform(position_range[0], position_range[1]), 
+                           random.uniform(position_range[0], position_range[1]), 
+                           -size]
+        elif side == 2:  # Izquierda
+            self.position = [-size, 
+                           random.uniform(position_range[0], position_range[1]), 
+                           random.uniform(position_range[0], position_range[1])]
+        elif side == 3:  # Derecha
+            self.position = [size, 
+                           random.uniform(position_range[0], position_range[1]), 
+                           random.uniform(position_range[0], position_range[1])]
+        elif side == 4:  # Arriba
+            self.position = [random.uniform(position_range[0], position_range[1]), 
+                           size, 
+                           random.uniform(position_range[0], position_range[1])]
+        else:  # Abajo
+            self.position = [random.uniform(position_range[0], position_range[1]), 
+                           -size, 
+                           random.uniform(position_range[0], position_range[1])]
+        
+        # Vector dirección hacia el centro
+        target = [0, 0, 0]
+        direction = [target[0] - self.position[0],
+                   target[1] - self.position[1],
+                   target[2] - self.position[2]]
+        
+        # Normalizar y añadir un poco de aleatoriedad a la dirección
+        length = math.sqrt(sum(d*d for d in direction))
+        self.direction = [d/length for d in direction]
+        
+        # Añadir desviación aleatoria
+        self.direction[0] += random.uniform(-0.3, 0.3)
+        self.direction[1] += random.uniform(-0.3, 0.3)
+        self.direction[2] += random.uniform(-0.3, 0.3)
+        
+        # Re-normalizar
+        length = math.sqrt(sum(d*d for d in self.direction))
+        self.direction = [d/length for d in self.direction]
+        
+        # Velocidad aleatoria
+        self.speed = random.uniform(speed_range[0], speed_range[1])
+        
+        # Tamaño aleatorio (reducido para no ser tan intrusivo)
+        self.size = random.uniform(0.015, 0.05)
+        
+        # Estela del meteorito
+        self.trail = []
+        self.trail_max_length = 20  # Longitud máxima de la estela
+        self.active = True
+        self.trail_color = [
+            random.uniform(0.7, 1.0),  # Rojo
+            random.uniform(0.3, 0.8),  # Verde
+            random.uniform(0.0, 0.5)   # Azul
+        ]
+    
+    def update(self, delta_time):
+        if not self.active:
+            return
+            
+        # Guardar posición actual para la estela
+        self.trail.append(self.position.copy())
+        if len(self.trail) > self.trail_max_length:
+            self.trail.pop(0)
+        
+        # Actualizar posición
+        self.position[0] += self.direction[0] * self.speed * delta_time
+        self.position[1] += self.direction[1] * self.speed * delta_time
+        self.position[2] += self.direction[2] * self.speed * delta_time
+        
+        # Verificar si está fuera de rango
+        distance = math.sqrt(sum(p*p for p in self.position))
+        if distance > 30:  # Si está muy lejos, desactivar
+            self.active = False
+    
+    def draw(self):
+        if not self.active or len(self.trail) < 2:
+            return
+        
+        glPushMatrix()
+        
+        # Deshabilitar iluminación y textura
+        glDisable(GL_LIGHTING)
+        glDisable(GL_TEXTURE_2D)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE)
+        
+        # Dibujar estela del meteorito con líneas más gruesas y suaves
+        glLineWidth(2.0)  # Líneas más gruesas para la estela
+        
+        # Usar GL_LINE_STRIP para la estela principal
+        glBegin(GL_LINE_STRIP)
+        for i, pos in enumerate(self.trail):
+            # La estela se desvanece gradualmente
+            alpha = i / len(self.trail)
+            glColor4f(self.trail_color[0], self.trail_color[1], self.trail_color[2], alpha)
+            glVertex3f(pos[0], pos[1], pos[2])
+        glEnd()
+        
+        # Restaurar ancho de línea predeterminado
+        glLineWidth(1.0)
+        
+        # Dibujar el meteorito como una pequeña esfera brillante
+        glTranslatef(self.position[0], self.position[1], self.position[2])
+        
+        # Color blanco amarillento para el meteorito con brillo
+        glColor4f(1.0, 0.9, 0.7, 1.0)
+        
+        # Crear una pequeña esfera para el meteorito
+        meteor_sphere = gluNewQuadric()
+        gluQuadricTexture(meteor_sphere, GL_FALSE)  # No necesitamos textura
+        gluSphere(meteor_sphere, self.size, 8, 8)   # Usar menos subdivisiones para mejor rendimiento
+        
+        # Añadir un brillo alrededor del meteorito
+        glColor4f(1.0, 0.6, 0.2, 0.5)  # Color naranja/rojizo para el brillo
+        glow_sphere = gluNewQuadric()
+        gluQuadricTexture(glow_sphere, GL_FALSE)
+        gluSphere(glow_sphere, self.size * 1.5, 6, 6)  # Esfera ligeramente más grande
+        
+        # Restaurar estado
+        glDisable(GL_BLEND)
+        glEnable(GL_TEXTURE_2D)
+        glEnable(GL_LIGHTING)
+        glColor4f(1.0, 1.0, 1.0, 1.0)
+        glPopMatrix()
+
 # Crear el controlador de cámara
 camera_controller = OrbitCameraController()
+
+# Crear estrellas
+stars = [Star() for _ in range(500)]
+
+# Crear meteoritos iniciales
+meteors = [Meteor() for _ in range(10)]
+meteor_spawn_timer = 0
 
 # Mostrar controles en consola
 print("=== SIMULADOR DEL SISTEMA SOLAR ===")
@@ -616,6 +815,29 @@ while running:
     
     # Dibujar el skybox centrado en la cámara
     draw_skybox()
+    
+    # Dibujar estrellas
+    for star in stars:
+        star.update(delta_time)
+        star.draw()
+        
+    # Actualizar y dibujar meteoritos
+    for meteor in meteors:
+        if meteor.active:
+            meteor.update(delta_time)
+            meteor.draw()
+    
+    # Generar nuevos meteoritos
+    meteor_spawn_timer -= delta_time
+    if meteor_spawn_timer <= 0:
+        # Eliminar meteoritos inactivos
+        meteors = [m for m in meteors if m.active]
+        
+        # Añadir nuevos meteoritos si hay menos de 20
+        if len(meteors) < 20:
+            meteors.append(Meteor())
+        
+        meteor_spawn_timer = random.uniform(0.5, 2.0) / time_scale  # Ajustar según la velocidad de simulación
     
     # Definir la función para dibujar el sol
     def draw_sun():
