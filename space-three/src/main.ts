@@ -645,8 +645,51 @@ window.addEventListener('resize', () => {
 });
 
 // Función de animación
+
+// ==== Sistema de Meteoritos ====
+function createMeteorField(count = 50) {
+  const meteors: THREE.Mesh[] = [];
+  const meteorGeometry = new THREE.SphereGeometry(0.1, 8, 8);
+  const meteorMaterial = new THREE.MeshStandardMaterial({ color: 0xaaaaaa });
+
+  for (let i = 0; i < count; i++) {
+    const meteor = new THREE.Mesh(meteorGeometry, meteorMaterial);
+    meteor.position.set(
+      (Math.random() - 0.5) * 50,
+      (Math.random() - 0.5) * 50,
+      (Math.random() - 0.5) * 50
+    );
+    meteor.userData.velocity = new THREE.Vector3(
+      (Math.random() - 0.5) * 0.05,
+      (Math.random() - 0.5) * 0.05,
+      (Math.random() - 0.5) * 0.05
+    );
+    scene.add(meteor);
+    meteors.push(meteor);
+  }
+  return meteors;
+}
+
+const meteors = createMeteorField(80);
+
 function animate() {
   requestAnimationFrame(animate);
+
+  // Actualizar meteoritos
+  meteors.forEach(meteor => {
+    meteor.position.add(meteor.userData.velocity);
+    meteor.rotation.x += 0.01;
+    meteor.rotation.y += 0.01;
+    // Reposicionar si se aleja demasiado
+    if (meteor.position.length() > 60) {
+      meteor.position.set(
+        (Math.random() - 0.5) * 50,
+        (Math.random() - 0.5) * 50,
+        (Math.random() - 0.5) * 50
+      );
+    }
+  });
+
 
   // Rotación del Sol
   sun.rotation.y += 0.001;

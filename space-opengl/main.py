@@ -30,6 +30,73 @@ glClearColor(0.0, 0.0, 0.0, 1.0)  # Color de fondo negro
 simulation_time = 0
 time_scale = 0.1  # Velocidad de la simulación: 0.5 = medio "año" por segundo
 
+# --- Información de planetas ---
+planet_info = {
+    "Sun": {
+        "name": "Sol",
+        "desc": "El Sol es la estrella central del Sistema Solar.",
+    },
+    "Mercury": {
+        "name": "Mercurio",
+        "desc": "Mercurio es el planeta más pequeño y más interno del Sistema Solar.",
+    },
+    "Venus": {
+        "name": "Venus",
+        "desc": "Venus es el segundo planeta del Sistema Solar.",
+    },
+    "Earth": {
+        "name": "Tierra",
+        "desc": "La Tierra es el único planeta conocido que alberga vida.",
+    },
+    "Mars": {
+        "name": "Marte",
+        "desc": "Marte es conocido como el 'planeta rojo'.",
+    },
+    "Jupiter": {
+        "name": "Júpiter",
+        "desc": "Júpiter es el planeta más grande del Sistema Solar.",
+    },
+    "Saturn": {
+        "name": "Saturno",
+        "desc": "Saturno es famoso por su sistema de anillos.",
+    },
+    "Uranus": {
+        "name": "Urano",
+        "desc": "Urano es un gigante de hielo con rotación única.",
+    },
+    "Neptune": {
+        "name": "Neptuno",
+        "desc": "Neptuno es el planeta más distante del Sistema Solar.",
+    },
+    "Moon": {
+        "name": "Luna",
+        "desc": "La Luna es el único satélite natural de la Tierra.",
+    },
+}
+
+# --- Renderizado de texto en OpenGL ---
+def render_text_to_texture(text, font_size=24, color=(255,255,255), bg_color=(0,0,0,180)):
+    font = pygame.font.SysFont("Arial", font_size, bold=True)
+    text_surface = font.render(text, True, color)
+    w, h = text_surface.get_size()
+    # Crear fondo semitransparente
+    panel_surface = pygame.Surface((w+20, h+20), pygame.SRCALPHA)
+    panel_surface.fill(bg_color)
+    panel_surface.blit(text_surface, (10,10))
+    texture_data = pygame.image.tostring(panel_surface, "RGBA", True)
+    texture_id = glGenTextures(1)
+    glBindTexture(GL_TEXTURE_2D, texture_id)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, panel_surface.get_width(), panel_surface.get_height(), 0, GL_RGBA, GL_UNSIGNED_BYTE, texture_data)
+    return texture_id, panel_surface.get_width(), panel_surface.get_height()
+
+# --- Estado de selección de planeta ---
+selected_planet = None
+selected_planet_texture = None
+selected_planet_tex_w = 0
+selected_planet_tex_h = 0
+
 # Configuración de iluminación para el sol
 def set_sun_light():
     # Posición de la luz (en el centro donde estará el sol)
@@ -344,6 +411,16 @@ class OrbitCameraController:
                     if clicked_planet:
                         print(f"Enfocando el planeta: {clicked_planet}")
                         self.set_follow_planet(clicked_planet)
+                        # --- Seleccionar planeta para mostrar info ---
+                        global selected_planet, selected_planet_texture, selected_planet_tex_w, selected_planet_tex_h
+                        selected_planet = clicked_planet
+                        info = planet_info.get(clicked_planet, {"name": clicked_planet, "desc": ""})
+                        text = f"{info['name']}\n{info['desc']}"
+                        # Renderizar textura de texto
+                        if selected_planet_texture:
+                            glDeleteTextures([selected_planet_texture])
+                        selected_planet_texture, selected_planet_tex_w, selected_planet_tex_h = render_text_to_texture(text, font_size=28)
+                        return  # No activar drag si hicimos clic en un planeta
                         return  # No activar drag si hicimos clic en un planeta
                 
                 # Activar arrastre solo si no estamos siguiendo un planeta
@@ -367,6 +444,13 @@ class OrbitCameraController:
         elif event.type == pygame.MOUSEBUTTONUP:
             if event.button == 1:
                 self.drag_active = False
+                # Al soltar click izquierdo fuera de planeta, deseleccionar
+                selected_planet, selected_planet_texture
+                if selected_planet:
+                    selected_planet = None
+                    if selected_planet_texture:
+                        glDeleteTextures([selected_planet_texture])
+                        selected_planet_texture = None
             elif event.button == 3:
                 self.right_drag_active = False
                 
@@ -1038,6 +1122,39 @@ while running:
     # Actualizar la pantalla
     pygame.display.flip()
     clock.tick(60)  # 60 FPS
+
+    # --- Dibujar panel de información del planeta seleccionado ---
+    if selected_planet and selected_planet_texture:
+        # Guardar matrices y estado
+        glMatrixMode(GL_PROJECTION)
+        glPushMatrix()
+        glLoadIdentity()
+        glOrtho(0, width, height, 0, -1, 1)
+        glMatrixMode(GL_MODELVIEW)
+        glPushMatrix()
+        glLoadIdentity()
+        glDisable(GL_DEPTH_TEST)
+        glEnable(GL_TEXTURE_2D)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        glBindTexture(GL_TEXTURE_2D, selected_planet_texture)
+        # Posición del panel (esquina inferior izquierda)
+        panel_x = 30
+        panel_y = height - selected_planet_tex_h - 30
+        glColor4f(1,1,1,1)
+        glBegin(GL_QUADS)
+        glTexCoord2f(0,0); glVertex2f(panel_x, panel_y)
+        glTexCoord2f(1,0); glVertex2f(panel_x+selected_planet_tex_w, panel_y)
+        glTexCoord2f(1,1); glVertex2f(panel_x+selected_planet_tex_w, panel_y+selected_planet_tex_h)
+        glTexCoord2f(0,1); glVertex2f(panel_x, panel_y+selected_planet_tex_h)
+        glEnd()
+        glBindTexture(GL_TEXTURE_2D, 0)
+        glDisable(GL_BLEND)
+        glEnable(GL_DEPTH_TEST)
+        glMatrixMode(GL_MODELVIEW)
+        glPopMatrix()
+        glMatrixMode(GL_PROJECTION)
+        glPopMatrix()
 
 # Finalizar Pygame
 pygame.quit()
