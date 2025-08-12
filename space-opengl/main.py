@@ -11,7 +11,7 @@ pygame.init()
 pygame.mouse.set_visible(True)
 
 # Configuración de la ventana
-width, height = 800, 600
+width, height = 1920, 1080
 pygame.display.set_mode((width, height), DOUBLEBUF | OPENGL)
 pygame.display.set_caption("OpenGL con Pygame")
 
