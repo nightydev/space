@@ -672,6 +672,121 @@ function createMeteorField(count = 50) {
 
 const meteors = createMeteorField(80);
 
+// === Cinturón de meteoritos optimizado (más allá de Neptuno) ===
+function createAsteroidBelt({
+  count = 120,
+  innerRadius = 12.5,
+  outerRadius = 14,
+  minSize = 0.03,
+  maxSize = 0.09,
+  ySpread = 0.5
+} = {}) {
+  const asteroids: THREE.Mesh[] = [];
+  const geometry = new THREE.SphereGeometry(1, 8, 6); // Usamos escala para variar tamaño
+
+  // Material compartido para optimizar
+  const material = new THREE.MeshStandardMaterial({
+    color: 0x888888,
+    roughness: 0.95,
+    metalness: 0.15,
+    flatShading: true,
+  });
+
+  for (let i = 0; i < count; i++) {
+    const asteroid = new THREE.Mesh(geometry, material);
+
+    // Ángulo y radio aleatorio dentro del rango del cinturón
+    const angle = Math.random() * Math.PI * 2;
+    const radius = innerRadius + Math.random() * (outerRadius - innerRadius);
+    const y = (Math.random() - 0.5) * ySpread;
+
+    asteroid.position.set(
+      Math.cos(angle) * radius,
+      y,
+      Math.sin(angle) * radius
+    );
+
+    // Escala aleatoria para simular tamaños distintos
+    const scale = minSize + Math.random() * (maxSize - minSize);
+    asteroid.scale.set(scale, scale, scale);
+
+    // Rotación inicial aleatoria
+    asteroid.rotation.set(
+      Math.random() * Math.PI,
+      Math.random() * Math.PI,
+      Math.random() * Math.PI
+    );
+
+    // Velocidad orbital y rotación aleatoria
+    asteroid.userData = {
+      orbitSpeed: 0.0003 + Math.random() * 0.0004,
+      orbitAngle: angle,
+      orbitRadius: radius,
+      yOffset: y,
+      rotSpeed: 0.01 + Math.random() * 0.02
+    };
+
+    scene.add(asteroid);
+    asteroids.push(asteroid);
+  }
+  return asteroids;
+}
+
+const asteroidBelt = createAsteroidBelt();
+
+// === Añadir meteoritos tipo polvo al cinturón de meteoritos ===
+function createDustBelt({
+  count = 400,
+  innerRadius = 12.5,
+  outerRadius = 14.2,
+  ySpread = 0.7
+} = {}) {
+  const dustGeometry = new THREE.BufferGeometry();
+  const positions = [];
+  const colors = [];
+  const color = new THREE.Color(0xcccccc);
+
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const radius = innerRadius + Math.random() * (outerRadius - innerRadius);
+    const y = (Math.random() - 0.5) * ySpread;
+
+    positions.push(
+      Math.cos(angle) * radius,
+      y,
+      Math.sin(angle) * radius
+    );
+
+    // Color grisáceo con ligera variación
+    color.setHSL(0, 0, 0.7 + Math.random() * 0.2);
+    colors.push(color.r, color.g, color.b);
+  }
+
+  dustGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  dustGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+  const dustMaterial = new THREE.PointsMaterial({
+    size: 0.04,
+    vertexColors: true,
+    opacity: 0.6,
+    transparent: true
+  });
+
+  const dustPoints = new THREE.Points(dustGeometry, dustMaterial);
+  scene.add(dustPoints);
+
+  // Animación orbital simple
+  dustPoints.userData = {
+    positions,
+    angles: positions.map((_, i) => (i % 3 === 0 ? Math.random() * Math.PI * 2 : undefined)).filter(v => v !== undefined),
+    radii: positions.map((_, i) => (i % 3 === 0 ? innerRadius + Math.random() * (outerRadius - innerRadius) : undefined)).filter(v => v !== undefined)
+  };
+
+  return dustPoints;
+}
+
+const dustBelt = createDustBelt();
+
 function animate() {
   requestAnimationFrame(animate);
 
@@ -690,6 +805,33 @@ function animate() {
     }
   });
 
+  // Animación del cinturón de meteoritos
+  asteroidBelt.forEach(asteroid => {
+    // Actualiza el ángulo orbital
+    asteroid.userData.orbitAngle += asteroid.userData.orbitSpeed;
+    asteroid.position.x = Math.cos(asteroid.userData.orbitAngle) * asteroid.userData.orbitRadius;
+    asteroid.position.z = Math.sin(asteroid.userData.orbitAngle) * asteroid.userData.orbitRadius;
+    asteroid.position.y = asteroid.userData.yOffset;
+
+    // Rotación propia
+    asteroid.rotation.x += asteroid.userData.rotSpeed;
+    asteroid.rotation.y += asteroid.userData.rotSpeed * 0.7;
+  });
+
+  // Animación del polvo del cinturón
+  if (dustBelt) {
+    const positions = dustBelt.geometry.attributes.position.array as Float32Array;
+    const count = positions.length / 3;
+    const time = Date.now() * 0.00015;
+    for (let i = 0; i < count; i++) {
+      const angle = time + i * 0.01;
+      const radius = 12.5 + Math.random() * 1.7;
+      positions[3 * i] = Math.cos(angle) * radius;
+      positions[3 * i + 2] = Math.sin(angle) * radius;
+      // Y se mantiene igual para el polvo
+    }
+    dustBelt.geometry.attributes.position.needsUpdate = true;
+  }
 
   // Rotación del Sol
   sun.rotation.y += 0.001;
