@@ -98,6 +98,13 @@ def draw_rings(texture, inner_radius, outer_radius, segments=100):
     
     glDisable(GL_BLEND)
 
+# Función simple para mostrar información (eliminar overlays problemáticos)
+def show_planet_info(planet_name):
+    if planet_name:
+        print(f"Enfocando: {planet_name}")
+    else:
+        print("Modo cámara libre")
+
 # Función para dibujar un planeta
 def draw_planet(texture, radius, distance, orbit_period, rotation_period, tilt, time):
     glPushMatrix()
@@ -311,16 +318,21 @@ class OrbitCameraController:
         # Si no seguimos ningún planeta, volver al origen
         if planet_name is None:
             self.target = [0.0, 0.0, 0.0]
-        
-        # Ajustar la distancia de la cámara según el planeta
-        if planet_name == "Sun":
-            self.radius = 3.0
-        elif planet_name in ["Jupiter", "Saturn", "Uranus", "Neptune"]:
-            self.radius = 1.5
-        elif planet_name in ["Earth", "Venus", "Mars", "Mercury"]:
-            self.radius = 0.8
+            self.radius = 5.0  # Distancia por defecto
         else:
-            self.radius = 2.0
+            # Ajustar la distancia de la cámara según el planeta
+            if planet_name == "Sun":
+                self.radius = 3.0
+            elif planet_name in ["Jupiter", "Saturn"]:
+                self.radius = 2.0
+            elif planet_name in ["Uranus", "Neptune"]:
+                self.radius = 1.5
+            elif planet_name in ["Earth", "Venus", "Mars"]:
+                self.radius = 0.8
+            elif planet_name == "Mercury":
+                self.radius = 0.6
+            else:
+                self.radius = 1.0
     
     def handle_event(self, event, planet_positions=None):
         if event.type == pygame.MOUSEBUTTONDOWN:
@@ -329,22 +341,17 @@ class OrbitCameraController:
                 if planet_positions:
                     clicked_planet = self.check_planet_click(event.pos, planet_positions)
                     if clicked_planet:
-                        print(f"Siguiendo al planeta: {clicked_planet}")
+                        print(f"Enfocando el planeta: {clicked_planet}")
                         self.set_follow_planet(clicked_planet)
-                    else:
-                        # Si hacemos clic en el espacio vacío, dejamos de seguir planetas
-                        self.set_follow_planet(None)
-                        # Y activamos el arrastre normal
-                        self.drag_active = True
-                else:
-                    # Si no hay posiciones de planetas, comportamiento normal
-                    self.drag_active = True
+                        return  # No activar drag si hicimos clic en un planeta
                 
+                # Activar arrastre solo si no estamos siguiendo un planeta
+                if not self.follow_planet:
+                    self.drag_active = True
                 self.last_mouse_x, self.last_mouse_y = pygame.mouse.get_pos()
             
             elif event.button == 3:  # Botón derecho
-                # El botón derecho siempre cancela el seguimiento
-                self.set_follow_planet(None)
+                # El botón derecho para paneo
                 self.right_drag_active = True
                 self.last_mouse_x, self.last_mouse_y = pygame.mouse.get_pos()
             
@@ -367,7 +374,7 @@ class OrbitCameraController:
             delta_x = mouse_x - self.last_mouse_x
             delta_y = mouse_y - self.last_mouse_y
             
-            if self.drag_active:  # Rotación (botón izquierdo)
+            if self.drag_active and not self.follow_planet:  # Rotación solo si no seguimos un planeta
                 self.theta -= delta_x * self.sensitivity
                 self.phi += delta_y * self.sensitivity
                 
@@ -377,85 +384,139 @@ class OrbitCameraController:
                 if self.phi < self.phi_min:
                     self.phi = self.phi_min
             
-            elif self.right_drag_active:  # Paneo (botón derecho)
-                # Calcular vectores de dirección derecha y arriba en el espacio de la cámara
-                right_vector = [
-                    math.cos(self.theta),
-                    0,
-                    -math.sin(self.theta)
-                ]
-                
-                # Mover el target según el movimiento del mouse
-                self.target[0] -= right_vector[0] * delta_x * self.pan_speed * self.radius
-                self.target[2] -= right_vector[2] * delta_x * self.pan_speed * self.radius
-                self.target[1] += delta_y * self.pan_speed * self.radius
+            elif self.right_drag_active or (self.follow_planet and self.drag_active):  # Paneo (botón derecho) o rotación alrededor del planeta
+                if self.follow_planet and self.drag_active:
+                    # Si seguimos un planeta y arrastramos, rotar alrededor del planeta
+                    self.theta -= delta_x * self.sensitivity
+                    self.phi += delta_y * self.sensitivity
+                    
+                    # Limitar phi para evitar giros completos
+                    if self.phi > self.phi_max:
+                        self.phi = self.phi_max
+                    if self.phi < self.phi_min:
+                        self.phi = self.phi_min
+                else:
+                    # Paneo normal (botón derecho)
+                    # Calcular vectores de dirección derecha y arriba en el espacio de la cámara
+                    right_vector = [
+                        math.cos(self.theta),
+                        0,
+                        -math.sin(self.theta)
+                    ]
+                    
+                    # Mover el target según el movimiento del mouse
+                    self.target[0] -= right_vector[0] * delta_x * self.pan_speed * self.radius
+                    self.target[2] -= right_vector[2] * delta_x * self.pan_speed * self.radius
+                    self.target[1] += delta_y * self.pan_speed * self.radius
                 
             self.last_mouse_x = mouse_x
             self.last_mouse_y = mouse_y
     
     def check_planet_click(self, mouse_pos, planet_positions):
-        # Obtener información de la ventana y la matriz de proyección
-        viewport = glGetIntegerv(GL_VIEWPORT)
-        projection_matrix = glGetDoublev(GL_PROJECTION_MATRIX)
-        modelview_matrix = glGetDoublev(GL_MODELVIEW_MATRIX)
-        
-        # Coordenadas del mouse en pantalla
+        # Convertir coordenadas del mouse a coordenadas OpenGL
         x, y = mouse_pos
-        y = viewport[3] - y  # Invertir y porque OpenGL tiene el origen abajo
+        viewport = glGetIntegerv(GL_VIEWPORT)
+        y = viewport[3] - y  # Invertir Y porque OpenGL tiene origen abajo-izquierda
         
-        # Obtener profundidad del píxel donde hizo clic el usuario
-        z = glReadPixels(x, y, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT)[0][0]
+        # Obtener las matrices
+        modelview_matrix = glGetDoublev(GL_MODELVIEW_MATRIX)
+        projection_matrix = glGetDoublev(GL_PROJECTION_MATRIX)
         
-        # Si z es 1.0, no hay nada en ese punto (es el fondo)
-        if z == 1.0:
+        # Crear un rayo desde la cámara hacia el mouse
+        # Obtener punto cercano (z=0) y lejano (z=1) del rayo
+        try:
+            near_x, near_y, near_z = gluUnProject(x, y, 0.0, modelview_matrix, projection_matrix, viewport)
+            far_x, far_y, far_z = gluUnProject(x, y, 1.0, modelview_matrix, projection_matrix, viewport)
+        except:
             return None
         
-        # Convertir coordenadas de pantalla a coordenadas del mundo
-        world_x, world_y, world_z = gluUnProject(x, y, z, modelview_matrix, projection_matrix, viewport)
+        # Vector dirección del rayo
+        ray_dir = np.array([far_x - near_x, far_y - near_y, far_z - near_z])
+        ray_dir = ray_dir / np.linalg.norm(ray_dir)  # Normalizar
+        ray_origin = np.array([near_x, near_y, near_z])
         
-        # Punto donde hizo clic el usuario en el espacio 3D
-        click_point = (world_x, world_y, world_z)
-        
-        # Buscar el planeta más cercano al punto del clic
         closest_planet = None
         min_distance = float('inf')
         
-        # Verificar "Sun" primero si está en las posiciones (podría no estar)
-        if "Sun" in planet_positions:
-            # Posición del sol es siempre (0,0,0)
-            sun_pos = (0, 0, 0)
-            sun_radius = 1.0  # Radio del sol
-            dist = ((click_point[0] - sun_pos[0])**2 + 
-                    (click_point[1] - sun_pos[1])**2 + 
-                    (click_point[2] - sun_pos[2])**2)**0.5
-            
-            # Si la distancia es menor que el radio, hemos hecho clic en el sol
-            if dist < sun_radius * 1.2:  # *1.2 para dar algo de margen
-                return "Sun"
+        # Verificar el Sol primero (posición fija en el origen)
+        sun_pos = np.array([0.0, 0.0, 0.0])
+        sun_radius = 1.0 * 1.5  # Radio del sol con tolerancia
         
-        # Verificar otros planetas
+        # Calcular intersección rayo-esfera para el Sol
+        distance_to_sun = self.ray_sphere_intersection(ray_origin, ray_dir, sun_pos, sun_radius)
+        if distance_to_sun is not None and distance_to_sun < min_distance:
+            closest_planet = "Sun"
+            min_distance = distance_to_sun
+        
+        # Verificar planetas
         for planet_name, position in planet_positions.items():
-            # Encontrar el radio del planeta en la lista planets_data
-            planet_radius = 0.1  # Valor predeterminado
+            if planet_name == "Sun":
+                continue  # Ya verificamos el Sol
+            
+            planet_pos = np.array(position)
+            
+            # Encontrar el radio del planeta
+            planet_radius = 0.1  # Valor por defecto
             for p in planets_data:
                 if p[0] == planet_name:
-                    planet_radius = p[1]
+                    planet_radius = p[1] * 2.5  # Aumentar tolerancia para clicks más fáciles
                     break
             
-            # Calcular la distancia entre el punto del clic y el centro del planeta
-            dist = ((click_point[0] - position[0])**2 + 
-                   (click_point[1] - position[1])**2 + 
-                   (click_point[2] - position[2])**2)**0.5
-            
-            # Si la distancia es menor que el radio, hemos hecho clic en el planeta
-            # Y si es más cercano que cualquier planeta encontrado antes
-            if dist < planet_radius * 2.0 and dist < min_distance:  # *2.0 para dar algo de margen
+            # Calcular intersección rayo-esfera
+            distance = self.ray_sphere_intersection(ray_origin, ray_dir, planet_pos, planet_radius)
+            if distance is not None and distance < min_distance:
                 closest_planet = planet_name
-                min_distance = dist
-            return closest_planet
+                min_distance = distance
+        
+        return closest_planet
+    
+    def ray_sphere_intersection(self, ray_origin, ray_dir, sphere_center, sphere_radius):
+        """
+        Calcula la intersección entre un rayo y una esfera.
+        Retorna la distancia al punto de intersección más cercano, o None si no hay intersección.
+        """
+        # Vector del origen del rayo al centro de la esfera
+        oc = ray_origin - sphere_center
+        
+        # Coeficientes de la ecuación cuadrática
+        a = np.dot(ray_dir, ray_dir)
+        b = 2.0 * np.dot(oc, ray_dir)
+        c = np.dot(oc, oc) - sphere_radius * sphere_radius
+        
+        # Discriminante
+        discriminant = b * b - 4 * a * c
+        
+        if discriminant < 0:
+            return None  # No hay intersección
+        
+        # Calcular las dos soluciones
+        sqrt_discriminant = math.sqrt(discriminant)
+        t1 = (-b - sqrt_discriminant) / (2 * a)
+        t2 = (-b + sqrt_discriminant) / (2 * a)
+        
+        # Retornar la intersección más cercana que sea positiva (delante de la cámara)
+        if t1 > 0:
+            return t1
+        elif t2 > 0:
+            return t2
+        else:
+            return None  # Intersección detrás de la cámara
 
 # Crear el controlador de cámara
 camera_controller = OrbitCameraController()
+
+# Mostrar controles en consola
+print("=== SIMULADOR DEL SISTEMA SOLAR ===")
+print("Controles:")
+print("- Click izquierdo en un planeta: Enfocar planeta")
+print("- Arrastrar (sin planeta enfocado): Rotar cámara")
+print("- Arrastrar (con planeta enfocado): Rotar alrededor del planeta")
+print("- Click derecho + arrastrar: Paneo de cámara")
+print("- Rueda del mouse: Zoom")
+print("- Tecla C: Cancelar enfoque y volver a cámara libre")
+print("- +/-: Aumentar/disminuir velocidad de simulación")
+print("- ESC: Salir")
+print("====================================")
 
 # Configuración de la proyección
 glMatrixMode(GL_PROJECTION)
@@ -467,6 +528,7 @@ running = True
 clock = pygame.time.Clock()
 last_time = pygame.time.get_ticks()
 simulation_time = 0
+planet_positions = {}  # Inicializar diccionario de posiciones
 
 while running:
     # Calcular el tiempo transcurrido
@@ -477,26 +539,11 @@ while running:
     # Actualizar el tiempo de simulación
     simulation_time += delta_time * time_scale
     
-    # Manejo de eventos
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-        elif event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_ESCAPE:
-                running = False
-            elif event.key == pygame.K_PLUS or event.key == pygame.K_KP_PLUS:
-                time_scale *= 1.2  # Aumentar velocidad de simulación (factor más pequeño)
-            elif event.key == pygame.K_MINUS or event.key == pygame.K_KP_MINUS:
-                time_scale /= 1.2  # Reducir velocidad de simulación (factor más pequeño)
-        
-        # Pasar eventos al controlador de cámara
-        camera_controller.handle_event(event)
-    
     # Limpiar la pantalla
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     
-    # Actualizar la posición de la cámara
-    camera_controller.update()
+    # Actualizar la posición de la cámara con las posiciones anteriores
+    camera_controller.update(planet_positions)
     
     # Guardar la matriz actual
     glPushMatrix()
@@ -625,6 +672,9 @@ while running:
     # Dibujar los planetas
     planet_positions = {}
     
+    # Agregar la posición del Sol (siempre en el origen)
+    planet_positions["Sun"] = (0.0, 0.0, 0.0)
+    
     # Mercurio
     planet_positions["Mercury"] = draw_planet(
         mercury_texture, 
@@ -742,6 +792,26 @@ while running:
     
     # Restaurar la matriz
     glPopMatrix()
+    
+    # Manejo de eventos (después de calcular posiciones de planetas)
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                running = False
+            elif event.key == pygame.K_PLUS or event.key == pygame.K_KP_PLUS:
+                time_scale *= 1.2  # Aumentar velocidad de simulación
+            elif event.key == pygame.K_MINUS or event.key == pygame.K_KP_MINUS:
+                time_scale /= 1.2  # Reducir velocidad de simulación
+            elif event.key == pygame.K_c:  # Tecla C para cancelar enfoque
+                if camera_controller.follow_planet:
+                    print(f"Cancelando enfoque de: {camera_controller.follow_planet}")
+                    camera_controller.set_follow_planet(None)
+                    print("Modo cámara libre activado")
+        
+        # Pasar eventos al controlador de cámara con las posiciones de los planetas
+        camera_controller.handle_event(event, planet_positions)
     
     # Actualizar la pantalla
     pygame.display.flip()
